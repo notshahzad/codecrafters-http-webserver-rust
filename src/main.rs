@@ -1,52 +1,10 @@
 extern crate log;
 use env_logger;
-use log::debug;
-use log::error;
-use log::info;
-use log::warn;
-//use log::{debug, error, info};
-use std::io::{Read, Write};
-use std::mem::MaybeUninit;
-use std::net::TcpListener;
-use std::str::FromStr;
-
-struct HttpResponse {
-    response: String,
-}
-impl HttpResponse {
-    fn new() -> Self {
-        Self {
-            response: String::new(),
-        }
-    }
-    fn push_header(self: &mut Self, header: &str) {
-        if !header.ends_with("\r\n") {
-            let mut current_header = String::from(header);
-            current_header.push_str("\r\n");
-            self.response.push_str(&current_header);
-        } else {
-            self.response.push_str(header);
-        }
-    }
-    fn header_ok(self: &mut Self) {
-        self.response.clear();
-        self.push_header("HTTP/1.1 200 OK");
-    }
-}
-
-struct HttpReader<T> {
-    stream: T,
-}
-
-impl<T> Read for HttpReader<T>
-where
-    T: Read,
-{
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        let mut buf: [u8; 4096] = [0u8; 4096];
-        self.stream.read(&mut buf)
-    }
-}
+mod http;
+use crate::http::{HttpReader, HttpRequest};
+use http::HttpResponse;
+use log::{debug, error, info};
+use std::{io::Write, net::TcpListener};
 
 fn main() {
     env_logger::init();
@@ -59,8 +17,26 @@ fn main() {
         match stream {
             Ok(mut stream) => {
                 println!("accepted new connection");
+                let reader = HttpReader::new(&stream);
+                let request = reader.read_request();
+                if request.is_err() {
+                    //info!(
+                    //    "unable to read http request from stream because of {:?}",
+                    //    request
+                    //);
+                    println!(
+                        "unable to read http request from stream because of {:?}",
+                        request
+                    );
+                }
+                //rust people are going to murder me for this
+                let request = request.unwrap();
                 let mut http_response = HttpResponse::new();
-                http_response.header_ok();
+                if request.path == "/" {
+                    http_response.header_ok();
+                } else {
+                    http_response.push_header("HTTP/1.1 404 Not Found");
+                }
                 http_response.push_header("\r\n");
                 match stream.write(http_response.response.as_bytes()) {
                     Ok(size) => {
